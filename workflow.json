@@ -1,0 +1,171 @@
+{
+  "name": "AI Phishing Triage Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "phishing-inbox",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-160, 0],
+      "id": "9fc4ae80-05f8-4392-9dd2-395221435b36",
+      "name": "Ingest Emails",
+      "webhookId": "YOUR_WEBHOOK_ID"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cebca0ea-5062-44ee-99df-b09e72dd89bf",
+              "name": "email_sender",
+              "value": "={{ $json.body.message.from }}",
+              "type": "string"
+            },
+            {
+              "id": "a6c43bb4-d71a-4096-84cd-14739086e836",
+              "name": "email_subject",
+              "value": "={{ $json.body.thread.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "93d09754-bea3-4fd3-98de-51a1a69c27be",
+              "name": "email_body",
+              "value": "={{ $json.body.message.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [64, 0],
+      "id": "ce21eedb-948e-44a4-856e-b29a3d864701",
+      "name": "Parse fields"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an email security triage assistant.\n\nAnalyze this inbound email and return ONLY valid JSON.\n\nYour tasks:\n1. Extract the sender email.\n2. Extract the subject.\n3. Extract any URLs found in the email.\n4. Determine whether the email is likely phishing.\n5. Assign a risk score and severity.\n6. Summarize why.\n7. Recommend an action.\n\nImportant rules:\n- Urgency, account verification requests, login prompts, OTP requests, payment requests, password resets, suspicious links, and social engineering language should increase risk.\n- Public email providers can still be used in phishing.\n- Return raw JSON only.\n- Do not use markdown.\n- Do not wrap the response in code fences.\n\nEmail:\nSender: {{ $json.email_sender }}\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\n\nScoring scale:\n- 75 to 100 = High\n- 40 to 74 = Medium\n- 0 to 39 = Low\n\nReturn exactly this JSON structure:\n{\n  \"sender_email\": \"\",\n  \"subject\": \"\",\n  \"urls\": [],\n  \"sender_domain\": \"\",\n  \"risk_score\": 0,\n  \"severity\": \"Low\",\n  \"phishing_likely\": false,\n  \"summary\": \"\",\n  \"reasons\": [],\n  \"recommended_action\": \"\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [272, 0],
+      "id": "940b912f-02ed-46d7-afc6-c504a7262b7a",
+      "name": "Analyze Email Content",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let rawText = \n  $json.content?.parts?.[0]?.text ||\n  $json.candidates?.[0]?.content?.parts?.[0]?.text ||\n  $json.text || '';\n\nconst cleaned = typeof rawText === 'string'\n  ? rawText.replace(/```json|```/gi, '').trim()\n  : '';\n\nconst parsed = JSON.parse(cleaned);\n\nreturn [{ json: parsed }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [608, 0],
+      "id": "5c3b6cb8-59c4-4ff2-a77e-d8edadeca745",
+      "name": "Display Results"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Phishing Incident Log"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Phishing Incident Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{$now.toISO()}}",
+            "risk-score": "={{ $json.risk_score }}",
+            "subject": "={{ $json.subject }}",
+            "sender_email": "={{ $json.sender_email }}",
+            "severity": "={{ $json.severity }}",
+            "urls": "={{ $json.urls }}",
+            "phishing likely": "={{ $json.phishing_likely }}",
+            "summary": "={{ $json.summary }}",
+            "recommended_action": "={{ $json.recommended_action }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {"id": "timestamp", "displayName": "timestamp", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "sender_email", "displayName": "sender_email", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "subject", "displayName": "subject", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "risk-score", "displayName": "risk-score", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "severity", "displayName": "severity", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "phishing likely", "displayName": "phishing likely", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "urls", "displayName": "urls", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "summary", "displayName": "summary", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "recommended_action", "displayName": "recommended_action", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true}
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [800, 0],
+      "id": "410d9117-41f2-4ed8-b424-b0432f4e5d2f",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ingest Emails": {
+      "main": [[{"node": "Parse fields", "type": "main", "index": 0}]]
+    },
+    "Parse fields": {
+      "main": [[{"node": "Analyze Email Content", "type": "main", "index": 0}]]
+    },
+    "Analyze Email Content": {
+      "main": [[{"node": "Display Results", "type": "main", "index": 0}]]
+    },
+    "Display Results": {
+      "main": [[{"node": "Append row in sheet", "type": "main", "index": 0}]]
+    },
+    "Append row in sheet": {
+      "main": [[]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}
